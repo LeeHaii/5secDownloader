@@ -47,7 +47,11 @@ def download_clip(
         "--download-sections",
         section,
         "-f",
-        "bv*+ba/best",  # Accept any video format (webm, mp4, avi, etc)
+        "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b",
+        "--merge-output-format",
+        "mp4",
+        "--postprocessor-args",
+        "ffmpeg:-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k",
         "-o",
         output_template,
         url,
