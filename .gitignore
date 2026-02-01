@@ -27,7 +27,7 @@ Thumbs.db
 # =========================
 input/
 output/
-
+temp/
 # =========================
 # Media files (never commit)
 # =========================
