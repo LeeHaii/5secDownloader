@@ -114,20 +114,19 @@ def process_clips(
 ) -> None:
     rows = parse_input_csv(csv_path)
 
-    print(f"Processing {len(rows)} rows\n")
+    # Filter out empty rows and count only non-empty rows
+    non_empty_rows = [(idx, pairs) for idx, pairs in enumerate(rows) if pairs]
+    
+    print(f"Processing {len(non_empty_rows)} non-empty rows\n")
 
-    total_clips = sum(len(ts) for pairs in rows for _, ts in pairs)
+    total_clips = sum(len(ts) for _, pairs in non_empty_rows for _, ts in pairs)
     clips_done = 0
 
-    for row_idx, pairs in enumerate(rows):
-        if not pairs:
-            print(f"Row {row_idx}: skipped (empty)")
-            continue
-
-        print(f"Row {row_idx}:")
+    for output_row_num, (_, pairs) in enumerate(non_empty_rows, start=1):
+        print(f"Row {output_row_num}:")
         clip_count = 1
 
-        row_out = os.path.join(output_base_dir, str(row_idx))
+        row_out = os.path.join(output_base_dir, str(output_row_num))
         os.makedirs(row_out, exist_ok=True)
 
         for url, timestamps in pairs:
@@ -135,9 +134,9 @@ def process_clips(
 
             for ts in timestamps:
                 clips_done += 1
-                # Use %(ext)s to let yt-dlp determine the extension
+                # Save as x.y without extension (yt-dlp will add it)
                 output_template = os.path.join(
-                    row_out, f"{row_idx}.{clip_count}.%(ext)s"
+                    row_out, f"{output_row_num}.{clip_count}"
                 )
 
                 print(f"    [{clips_done}/{total_clips}] {int(ts)}s ", end="", flush=True)
@@ -152,7 +151,7 @@ def process_clips(
                 except Exception as e:
                     print(f"✗ Error: {str(e)[:50]}")
 
-        print(f"Row {row_idx}: completed\n")
+        print(f"Row {output_row_num}: completed\n")
 
 
 def main():
