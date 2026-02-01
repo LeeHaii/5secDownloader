@@ -1,12 +1,20 @@
 import os
 import csv
 import subprocess
+import sys
+import argparse
+import shutil
 from pathlib import Path
 from typing import List, Tuple
 from urllib.parse import urlparse, parse_qs
 
 
 CLIP_DURATION = 5.0  # seconds
+
+
+def ffmpeg_available() -> bool:
+    """Return True if ffmpeg is available on PATH."""
+    return shutil.which("ffmpeg") is not None
 
 
 def clean_youtube_url(url: str) -> str:
@@ -37,8 +45,8 @@ def download_clip(
     end = start_time + duration
     section = f"*{int(start)}-{int(end)}"
 
-    # Get Python executable from the virtual environment
-    python_exe = str(Path(__file__).parent.parent.parent / ".venv" / "Scripts" / "python.exe")
+    # Use the current Python interpreter (works with activated venv or system Python)
+    python_exe = sys.executable
     
     cmd = [
         python_exe,
@@ -57,14 +65,20 @@ def download_clip(
         url,
     ]
 
-    # Don't capture output so we can see the yt-dlp progress bar
+    # Run yt-dlp and capture output so errors are visible for debugging
     print(f"    Downloading... ", end="", flush=True)
-    result = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        raise Exception(f"Failed to download clip")
+        # Print captured output to help diagnose failures
+        print()
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+        raise Exception(f"Failed to download clip (exit {result.returncode})")
 
-    print(f"✓")
+    print("OK")
 
 
 def parse_input_csv(
@@ -153,19 +167,30 @@ def process_clips(
                     )
                     clip_count += 1
                 except Exception as e:
-                    print(f"✗ Error: {str(e)[:50]}")
+                    print(f"Error: {str(e)[:50]}")
 
         print(f"Row {output_row_num}: completed\n")
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Process CSV and download short clips using yt-dlp"
+    )
+    parser.add_argument("--csv", "-c", type=str, help="Path to input CSV")
+    parser.add_argument("--output", "-o", type=str, help="Path to output directory")
+    args = parser.parse_args()
+
     root = Path(__file__).parent.parent
 
-    csv_path = root / "input" / "input.csv"
-    output_dir = root / "output"
+    csv_path = Path(args.csv) if args.csv else root / "input" / "input.csv"
+    output_dir = Path(args.output) if args.output else root / "output"
 
     if not csv_path.exists():
         print(f"Input CSV not found: {csv_path}")
+        return
+
+    if not ffmpeg_available():
+        print("ffmpeg is not installed or not on PATH. Install it (winget install Gyan.FFmpeg) and restart the app.")
         return
 
     print("=" * 50)
