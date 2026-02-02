@@ -8,7 +8,172 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import webbrowser
 
-ROOT = Path(__file__).parent.parent
+# Determine project root that works when running normally or when bundled by PyInstaller
+if getattr(sys, "frozen", False):
+    # When frozen by PyInstaller, resources are available in sys._MEIPASS
+    ROOT = Path(getattr(sys, "_MEIPASS", "."))
+else:
+    ROOT = Path(__file__).parent.parent
+
+CLIP_DURATION = 5.0  # seconds
+
+from urllib.parse import urlparse, parse_qs
+import csv
+
+def ffmpeg_available() -> bool:
+    """Return True if ffmpeg is available on PATH or bundled with the exe."""
+    # check bundled location first
+    if getattr(sys, "frozen", False):
+        bundled = Path(getattr(sys, "_MEIPASS", ".")) / "ffmpeg" / "bin" / "ffmpeg.exe"
+        if bundled.exists():
+            return True
+    return shutil.which("ffmpeg") is not None
+
+
+def clean_youtube_url(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        params = parse_qs(parsed.query)
+        if "v" in params:
+            video_id = params["v"][0]
+            return f"https://www.youtube.com/watch?v={video_id}"
+    except:
+        pass
+    return url
+
+
+def download_clip(url: str, start_time: float, duration: float, output_template: str, log_callback=print, stop_event=None) -> None:
+    start = start_time
+    end = start_time + duration
+    section = f"*{int(start)}-{int(end)}"
+
+    python_exe = sys.executable
+
+    cmd = [
+        python_exe,
+        "-m",
+        "yt_dlp",
+        "--download-sections",
+        section,
+        "-f",
+        "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b",
+        "--merge-output-format",
+        "mp4",
+        "--postprocessor-args",
+        "ffmpeg:-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k",
+        "-o",
+        output_template,
+        url,
+    ]
+
+    log_callback("    Downloading... ")
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        log_callback("\n")
+        if result.stdout:
+            log_callback(result.stdout + "\n")
+        if result.stderr:
+            log_callback(result.stderr + "\n")
+        raise Exception(f"Failed to download clip (exit {result.returncode})")
+
+    log_callback("OK\n")
+
+
+def parse_input_csv(csv_path: str):
+    rows = []
+
+    def convert_timestamp(ts: str) -> float:
+        parts = ts.split(".")
+        if len(parts) == 2:
+            return int(parts[0]) * 60 + int(parts[1])
+        return float(ts)
+
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if not any(row):
+                rows.append([])
+                continue
+
+            pairs = []
+            for i in range(0, len(row), 2):
+                if i + 1 >= len(row):
+                    continue
+
+                url = row[i].strip()
+                ts_raw = row[i + 1].strip()
+
+                if not url or not ts_raw:
+                    continue
+
+                # Clean URL to remove playlist parameters
+                url = clean_youtube_url(url)
+
+                timestamps = [
+                    convert_timestamp(t.strip())
+                    for t in ts_raw.split(";")
+                    if t.strip()
+                ]
+
+                pairs.append((url, timestamps))
+
+            rows.append(pairs)
+
+    return rows
+
+
+def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_event=None) -> None:
+    rows = parse_input_csv(csv_path)
+
+    # Filter out empty rows and count only non-empty rows
+    non_empty_rows = [(idx, pairs) for idx, pairs in enumerate(rows) if pairs]
+
+    log_callback(f"Processing {len(non_empty_rows)} non-empty rows\n\n")
+
+    total_clips = sum(len(ts) for _, pairs in non_empty_rows for _, ts in pairs)
+    clips_done = 0
+
+    for output_row_num, (_, pairs) in enumerate(non_empty_rows, start=1):
+        if stop_event and stop_event.is_set():
+            log_callback("Processing canceled by user.\n")
+            return
+
+        log_callback(f"Row {output_row_num}:\n")
+        clip_count = 1
+
+        row_out = os.path.join(output_base_dir, str(output_row_num))
+        os.makedirs(row_out, exist_ok=True)
+
+        for url, timestamps in pairs:
+            log_callback(f"  URL with {len(timestamps)} timestamp(s)\n")
+
+            for ts in timestamps:
+                if stop_event and stop_event.is_set():
+                    log_callback("Processing canceled by user.\n")
+                    return
+
+                clips_done += 1
+                # Save as x.y without extension (yt-dlp will add it)
+                output_template = os.path.join(
+                    row_out, f"{output_row_num}.{clip_count}"
+                )
+
+                log_callback(f"    [{clips_done}/{total_clips}] {int(ts)}s ")
+                try:
+                    download_clip(
+                        url,
+                        ts,
+                        CLIP_DURATION,
+                        output_template,
+                        log_callback=log_callback,
+                        stop_event=stop_event,
+                    )
+                    clip_count += 1
+                except Exception as e:
+                    log_callback(f"Error: {str(e)[:200]}\n")
+
+        log_callback(f"Row {output_row_num}: completed\n\n")
 
 
 class App(tk.Tk):
@@ -22,6 +187,7 @@ class App(tk.Tk):
 
         self.proc = None
         self.proc_thread = None
+        self.stop_event = threading.Event()
 
         self._build_ui()
 
@@ -93,6 +259,13 @@ class App(tk.Tk):
         subprocess.run(["explorer", str(path)])
 
     def _find_ffmpeg_exe(self):
+        # If running as a PyInstaller bundle, prefer the bundled ffmpeg (inside sys._MEIPASS)
+        if getattr(sys, "frozen", False):
+            meipass = Path(getattr(sys, "_MEIPASS", "."))
+            bundled = meipass / "ffmpeg" / "bin" / "ffmpeg.exe"
+            if bundled.exists():
+                return bundled
+
         # Search common installation locations and fallback to which()
         # Returns Path or None
         # 1) WinGet packages
@@ -173,6 +346,19 @@ class App(tk.Tk):
             self.start_btn.config(state=tk.NORMAL)
             self.stop_btn.config(state=tk.DISABLED)
 
+    def _run_processor(self, csv_path, output_path):
+        try:
+            # Clear any prior cancel request
+            self.stop_event.clear()
+            process_clips(csv_path, output_path, log_callback=lambda s: self._append_log(s), stop_event=self.stop_event)
+            self._append_log("\nProcessing finished.\n")
+        except Exception as e:
+            self._append_log(f"\nError: {e}\n")
+        finally:
+            self.start_btn.config(state=tk.NORMAL)
+            self.stop_btn.config(state=tk.DISABLED)
+            self.stop_event.clear()
+
     def start(self):
         csv_path = self.csv_path.get()
         output_path = self.output_path.get()
@@ -182,8 +368,9 @@ class App(tk.Tk):
             return
 
         # Ensure ffmpeg is available (or offer to install it)
-        if shutil.which('ffmpeg') is None:
-            if messagebox.askyesno("ffmpeg not found", "ffmpeg not found on PATH. Install via winget now?"):
+        ff = self._find_ffmpeg_exe()
+        if ff is None:
+            if messagebox.askyesno("ffmpeg not found", "ffmpeg not found. Install via winget now?"):
                 # Run installer in background and start after install
                 self._append_log("User agreed to install ffmpeg. Installing...\n")
                 threading.Thread(target=self._install_ffmpeg_and_start, args=(csv_path, output_path), daemon=True).start()
@@ -191,25 +378,18 @@ class App(tk.Tk):
             else:
                 messagebox.showerror("ffmpeg required", "ffmpeg is required to download partial clips. Aborting.")
                 return
-
-        # Choose python executable: .venv if present, else current interpreter
-        venv_python = ROOT / ".venv" / "Scripts" / "python.exe"
-        if venv_python.exists():
-            python_exe = str(venv_python)
         else:
-            python_exe = sys.executable
-
-        script = ROOT / "scripts" / "online_clip_processor.py"
-        cmd = [python_exe, str(script), "--csv", csv_path, "--output", output_path]
+            # Ensure ffmpeg directory is on PATH for subprocesses (so yt-dlp/ffmpeg can be found)
+            os.environ['PATH'] = str(ff.parent) + os.pathsep + os.environ.get('PATH', '')
 
         # UI state
         self.start_btn.config(state=tk.DISABLED)
         self.stop_btn.config(state=tk.NORMAL)
         self.log.delete(1.0, tk.END)
-        self._append_log(f"Starting: {' '.join(cmd)}\n\n")
+        self._append_log("Starting processing...\n\n")
 
-        # Start background thread
-        self.proc_thread = threading.Thread(target=self._run_proc, args=(cmd,), daemon=True)
+        # Start processing in a background thread (merged processor)
+        self.proc_thread = threading.Thread(target=self._run_processor, args=(csv_path, output_path), daemon=True)
         self.proc_thread.start()
 
     def stop(self):
@@ -219,6 +399,10 @@ class App(tk.Tk):
                 self._append_log("\nTermination requested.\n")
             except Exception as e:
                 self._append_log(f"\nError terminating process: {e}\n")
+        elif self.proc_thread and self.proc_thread.is_alive():
+            # Signal the running processor thread to stop
+            self.stop_event.set()
+            self._append_log("\nCancellation requested. Current download will finish and then stop.\n")
         else:
             self._append_log("\nNo running process.\n")
 
