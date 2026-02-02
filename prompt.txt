@@ -1,0 +1,39 @@
+You are an expert at converting messy Excel timestamp data into clean CSV format.
+I will give you an Excel-like data dump inside <DOCUMENT> tags.
+The structure is irregular: each "row" contains one or more YouTube links followed by one or more timestamps (usually in mm.ss format like 2.38 or 12.45), and cells are separated by commas.
+Timestamps for the same video are often listed one per line (vertical), sometimes with empty lines between groups.
+There may also be extraneous text (like labels or notes) that are neither URLs nor timestamps; these should be ignored and removed.
+Your task:
+
+Treat each logical row separately (rows are separated by mostly empty lines or numbered as row1, row2, etc.)
+Parse the row by splitting on commas to get a list of tokens (ignoring newlines as formatting).
+Iterate through the tokens:
+If a token starts with "https://" and is a YouTube link, treat it as a new link and collect subsequent valid timestamps for it.
+A valid timestamp is a string matching the pattern of numbers with a dot (e.g., \d+.\d+ like 0.00, 1.23, 10.50).
+Ignore any tokens that are empty, or are text that is neither a link nor a valid timestamp.
+Collect ALL following valid timestamps for the current link (until the next link or end of row).
+
+Convert the collected timestamps for each link into a SINGLE semicolon-separated string, like: 0.13;0.42;1.11;1.55;3.05
+Keep exactly the same format/numbers as in the source (including leading zeros, decimals, etc.)
+Do NOT add extra spaces around semicolons
+If only one timestamp → still write it alone (no semicolon)
+If no timestamps after a link → write nothing after the comma (just ,)
+
+Output format = clean CSV, one line per original data row
+Only include fields for links and their timestamp strings (link,timestamps,link,timestamps,...).
+No extra quotes unless the field actually contains comma or semicolon
+Empty rows should be preserved as blank lines or lines with only commas (,,,,,, etc.) to indicate empty.
+If a row contains only ignored text and no links/timestamps, output it as an empty row.
+Do NOT add header row
+Do NOT add row numbers in output
+
+Make sure links stay exactly as they are (including query parameters like &t=223s, &list=..., etc.)
+Example of desired output style:
+https://youtu.be/abc,1.23;4.56;7.89,https://youtu.be/def,0.45,,https://youtu.be/ghi,2.10;3.20
+Now here is the data:
+<DOCUMENT filename="whatever.xlsx">
+
+(paste your entire <SHEET> content here)
+</DOCUMENT>
+Please convert it to clean CSV following the rules above.
+Output only the CSV content, no explanations unless I ask.
