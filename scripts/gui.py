@@ -42,42 +42,51 @@ def clean_youtube_url(url: str) -> str:
     return url
 
 
-def download_clip(url: str, start_time: float, duration: float, output_template: str, log_callback=print, stop_event=None) -> None:
-    start = start_time
-    end = start_time + duration
-    section = f"*{int(start)}-{int(end)}"
+from yt_dlp import YoutubeDL
 
-    python_exe = sys.executable
+def download_clip(
+    url: str,
+    start_time: float,
+    duration: float,
+    output_template: str,
+    log_callback=print,
+    stop_event=None
+) -> None:
+    start = int(start_time)
+    end = int(start_time + duration)
 
-    cmd = [
-        python_exe,
-        "-m",
-        "yt_dlp",
-        "--download-sections",
-        section,
-        "-f",
-        "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b",
-        "--merge-output-format",
-        "mp4",
-        "--postprocessor-args",
-        "ffmpeg:-c:v libx264 -preset veryfast -crf 18 -pix_fmt yuv420p -c:a aac -b:a 192k",
-        "-o",
-        output_template,
-        url,
-    ]
+    ydl_opts = {
+        "format": "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b",
 
-    log_callback("    Downloading... ")
-    result = subprocess.run(cmd, capture_output=True, text=True)
+        "outtmpl": output_template,
 
-    if result.returncode != 0:
-        log_callback("\n")
-        if result.stdout:
-            log_callback(result.stdout + "\n")
-        if result.stderr:
-            log_callback(result.stderr + "\n")
-        raise Exception(f"Failed to download clip (exit {result.returncode})")
+        # 🔑 THIS is the critical part
+        "download_ranges": lambda info_dict, ydl: [
+            {"start_time": start, "end_time": end}
+        ],
+
+        "merge_output_format": "mp4",
+
+        "postprocessor_args": [
+            "-c:v", "libx264",
+            "-preset", "veryfast",
+            "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+        ],
+
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    log_callback(f"    Downloading {start}-{end}s ... ")
+
+    with YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
 
     log_callback("OK\n")
+
 
 
 def parse_input_csv(csv_path: str):
