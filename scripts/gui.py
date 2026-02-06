@@ -96,7 +96,10 @@ def parse_input_csv(csv_path: str):
         parts = ts.split(".")
         if len(parts) == 2:
             return int(parts[0]) * 60 + int(parts[1])
-        return float(ts)
+        elif len(parts) == 3:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        else:
+            return float(ts)
 
     with open(csv_path, newline="", encoding="utf-8") as f:
         reader = csv.reader(f)
@@ -204,6 +207,13 @@ class App(tk.Tk):
         frm = ttk.Frame(self, padding=8)
         frm.pack(fill=tk.BOTH, expand=True)
 
+        credit_row = ttk.Frame(frm)
+        credit_row.pack(side=tk.BOTTOM, fill=tk.X, pady=(0,6))
+        ttk.Label(credit_row, text="2026 TranDucThang's 5-Sec Downloader").pack(side=tk.LEFT)
+        fb_lbl = tk.Label(credit_row, text="Facebook", fg="blue", cursor="hand2")
+        fb_lbl.pack(side=tk.RIGHT)
+        fb_lbl.bind("<Button-1>", lambda e: webbrowser.open("https://www.facebook.com/rhymx2k3/"))
+
         # CSV selector
         csv_row = ttk.Frame(frm)
         csv_row.pack(fill=tk.X, pady=6)
@@ -239,12 +249,7 @@ class App(tk.Tk):
         self.log.configure(yscrollcommand=scrollbar.set)
 
         # Credits row: left text and right clickable Facebook link (pinned to bottom so always visible)
-        credit_row = ttk.Frame(frm)
-        credit_row.pack(side=tk.BOTTOM, fill=tk.X, pady=(0,6))
-        ttk.Label(credit_row, text="2025 TranDucThang 5-sec Donwloader").pack(side=tk.LEFT)
-        fb_lbl = tk.Label(credit_row, text="Facebook", fg="blue", cursor="hand2")
-        fb_lbl.pack(side=tk.RIGHT)
-        fb_lbl.bind("<Button-1>", lambda e: webbrowser.open("https://www.facebook.com/rhymx2k3/"))
+        
         # Prevent the window from being resized smaller than the current layout so credits remain visible
         self.update_idletasks()
         self.minsize(self.winfo_width(), self.winfo_height())
