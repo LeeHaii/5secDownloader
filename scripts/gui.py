@@ -186,7 +186,7 @@ def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_
                     clip_count += 1
                 except Exception as e:
                     log_callback(f"Error: {str(e)[:200]}\n")
-            clip_count = 0
+            clip_count = 1
 
         log_callback(f"Row {output_row_num}: completed\n\n")
 
