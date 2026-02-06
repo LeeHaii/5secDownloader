@@ -156,10 +156,12 @@ def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_
 
         row_out = os.path.join(output_base_dir, str(output_row_num))
         os.makedirs(row_out, exist_ok=True)
+        urlIndex = 0
 
         for url, timestamps in pairs:
             log_callback(f"  URL with {len(timestamps)} timestamp(s)\n")
 
+            urlIndex += 1
             for ts in timestamps:
                 if stop_event and stop_event.is_set():
                     log_callback("Processing canceled by user.\n")
@@ -168,7 +170,7 @@ def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_
                 clips_done += 1
                 # Save as x.y without extension (yt-dlp will add it)
                 output_template = os.path.join(
-                    row_out, f"{output_row_num}.{clip_count}"
+                    row_out, f"{output_row_num}.{urlIndex}.{clip_count}"
                 )
 
                 log_callback(f"    [{clips_done}/{total_clips}] {int(ts)}s ")
@@ -184,6 +186,7 @@ def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_
                     clip_count += 1
                 except Exception as e:
                     log_callback(f"Error: {str(e)[:200]}\n")
+            clip_count = 0
 
         log_callback(f"Row {output_row_num}: completed\n\n")
 
