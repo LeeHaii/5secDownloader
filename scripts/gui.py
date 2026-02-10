@@ -81,6 +81,7 @@ def download_clip(
 
         "quiet": True,
         "no_warnings": True,
+        "no-cache-dir": True,
     }
 
     if cookies_path:
@@ -89,6 +90,7 @@ def download_clip(
     log_callback(f"    Downloading {start}-{end}s ... ")
 
     with YoutubeDL(ydl_opts) as ydl:
+        ydl.cache.remove()
         ydl.download([url])
 
     log_callback("OK\n")
