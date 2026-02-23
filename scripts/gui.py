@@ -53,13 +53,15 @@ def download_clip(
     output_template: str,
     log_callback=print,
     stop_event=None,
-    cookies_path: str = None,
 ) -> None:
+    """
+    Download a clip.
+    """
     start = int(start_time)
     end = int(start_time + duration)
 
     ydl_opts = {
-        "format": "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b",
+        "format": "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best",
 
         "outtmpl": output_template,
 
@@ -82,10 +84,12 @@ def download_clip(
         "quiet": True,
         "no_warnings": True,
         "no-cache-dir": True,
+        "socket_timeout": 30,
+        "sleep_requests": random.uniform(1.5, 3.0),
+        "http_headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
+        },
     }
-
-    if cookies_path:
-        ydl_opts["cookiefile"] = cookies_path
 
     log_callback(f"    Downloading {start}-{end}s ... ")
 
@@ -143,7 +147,7 @@ def parse_input_csv(csv_path: str):
     return rows
 
 
-def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_event=None, cookies_path: str = None) -> None:
+def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_event=None) -> None:
     rows = parse_input_csv(csv_path)
 
     # Filter out empty rows and count only non-empty rows
@@ -168,7 +172,7 @@ def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_
         urlIndex = 0
 
         for url, timestamps in pairs:
-            log_callback(f"  URL with {len(timestamps)} timestamp(s)\n")
+            log_callback(f"  URL: {url} with {len(timestamps)} timestamp(s)\n")
 
             urlIndex += 1
             for ts in timestamps:
@@ -191,7 +195,6 @@ def process_clips(csv_path: str, output_base_dir: str, log_callback=print, stop_
                         output_template,
                         log_callback=log_callback,
                         stop_event=stop_event,
-                        cookies_path=cookies_path,
                     )
                     clip_count += 1
                     stampsleep = random.uniform(1, 2)
@@ -212,11 +215,10 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("5Sec Downloader")
-        self.geometry("800x520")
+        self.geometry("800x620")
 
         self.csv_path = tk.StringVar() #tk.StringVar(value=str(ROOT / "input" / "input.csv"))
         self.output_path = tk.StringVar() #tk.StringVar(value=str(ROOT / "output"))
-        self.cookies_path = tk.StringVar()
 
         self.proc = None
         self.proc_thread = None
@@ -251,14 +253,6 @@ class App(tk.Tk):
         out_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
         ttk.Button(out_row, text="Browse", command=self.browse_output).pack(side=tk.RIGHT)
 
-        # Cookies selector
-        ck_row = ttk.Frame(frm)
-        ck_row.pack(fill=tk.X, pady=6)
-        ttk.Label(ck_row, text="Cookies (txt):").pack(side=tk.LEFT)
-        ck_entry = ttk.Entry(ck_row, textvariable=self.cookies_path)
-        ck_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=6)
-        ttk.Button(ck_row, text="Browse", command=self.browse_cookies).pack(side=tk.RIGHT)
-
         # Controls
         ctrl_row = ttk.Frame(frm)
         ctrl_row.pack(fill=tk.X, pady=6)
@@ -292,11 +286,6 @@ class App(tk.Tk):
         path = filedialog.askdirectory()
         if path:
             self.output_path.set(path)
-
-    def browse_cookies(self):
-        path = filedialog.askopenfilename(filetypes=[("Text files", "*.txt"), ("All files", "*.*")])
-        if path:
-            self.cookies_path.set(path)
 
     def open_output(self):
         path = Path(self.output_path.get())
@@ -394,11 +383,11 @@ class App(tk.Tk):
             self.start_btn.config(state=tk.NORMAL)
             self.stop_btn.config(state=tk.DISABLED)
 
-    def _run_processor(self, csv_path, output_path, cookies_path):
+    def _run_processor(self, csv_path, output_path):
         try:
             # Clear any prior cancel request
             self.stop_event.clear()
-            process_clips(csv_path, output_path, log_callback=lambda s: self._append_log(s), stop_event=self.stop_event, cookies_path=cookies_path)
+            process_clips(csv_path, output_path, log_callback=lambda s: self._append_log(s), stop_event=self.stop_event)
             self._append_log("\nProcessing finished.\n")
         except Exception as e:
             self._append_log(f"\nError: {e}\n")
@@ -410,7 +399,6 @@ class App(tk.Tk):
     def start(self):
         csv_path = self.csv_path.get()
         output_path = self.output_path.get()
-        cookies_path = self.cookies_path.get()
 
         if not Path(csv_path).exists():
             messagebox.showerror("Error", "Input CSV not found")
@@ -438,7 +426,7 @@ class App(tk.Tk):
         self._append_log("Starting processing...\n\n")
 
         # Start processing in a background thread (merged processor)
-        self.proc_thread = threading.Thread(target=self._run_processor, args=(csv_path, output_path, cookies_path), daemon=True)
+        self.proc_thread = threading.Thread(target=self._run_processor, args=(csv_path, output_path), daemon=True)
         self.proc_thread.start()
 
     def stop(self):
